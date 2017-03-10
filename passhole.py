@@ -3,7 +3,7 @@
 ## Passhole - Keepass CLI + dmenu interface
 
 
-from pykeepass import PyKeePass
+import kppy.database
 from subprocess import Popen, PIPE, STDOUT # for talking to dmenu programs
 from pykeyboard import PyKeyboard          # for sending password to keyboard
 import random
@@ -15,21 +15,23 @@ import argparse
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 log = logging.getLogger(__name__)
 
-password_file = os.path.expanduser('~/.passhole.kdbx')
+password_file = os.path.expanduser('~/.passhole.kdb')
 
 base_dir = os.path.dirname(os.path.realpath(__file__))
 # taken from http://www.mit.edu/~ecprice/wordlist.10000
 wordlist = os.path.join(base_dir, 'wordlist.10000')
 template_password_file = os.path.join(base_dir, '.passhole.kdbx')
 
-# create database if necessary
+# load/create database
 if not os.path.exists(password_file):
-    log.info("No database file found at {0}".format(password_file))
-    log.info("Creating it...")
-    shutil.copy(template_password_file, password_file)
+    log.info("No database file found at {0}   Creating...".format(password_file))
+    db = kppy.database.KPDBv1(filepath=password_file, password='shatpass', new=True)
+    # rename default group to 'root'
+    db.groups[0].title = 'root'
+else:
+    db = kppy.database.KPDBv1(filepath=password_file, password='shatpass')
 
-# load database
-kp = PyKeePass(password_file, password='shatpass')
+db.load()
 
 # generate a list of random words, `num_words` long
 def word_sequence(num_words):
@@ -41,14 +43,17 @@ def word_sequence(num_words):
 
         return selected_words
 
+# find first entry with given title
+def find_entry_by_title(title):
+    for entry in db.entries:
+        if entry.title == title:
+            return entry
+
 
 # select an entry using `prog`, then type the password
 # if `tabbed` is True, type out username, TAB, password
 def dmenu(prog, tabbed=False):
-    entries = kp.entries
-    if not entries:
-        entries = []
-    entry_titles = '\n'.join([entry.title for entry in entries])
+    entry_titles = '\n'.join([entry.title for entry in db.entries])
 
     # get the entry from dmenu
     p = Popen(prog, stdout=PIPE, stdin=PIPE, stderr=STDOUT)
@@ -56,7 +61,7 @@ def dmenu(prog, tabbed=False):
     entry_title = grep_stdout.decode().rstrip('\n')
 
     if entry_title:
-        entry = kp.find_entries_by_title(entry_title)[0]
+        entry = find_entry_by_title(entry_title)
 
         # type out password
         k = PyKeyboard()
